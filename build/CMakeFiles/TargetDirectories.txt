@@ -1,0 +1,3 @@
+/mnt/bdrive2/Projects/MicroKV/build/CMakeFiles/server.dir
+/mnt/bdrive2/Projects/MicroKV/build/CMakeFiles/edit_cache.dir
+/mnt/bdrive2/Projects/MicroKV/build/CMakeFiles/rebuild_cache.dir
