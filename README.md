@@ -9,3 +9,6 @@ mkdir build && cd build
 cmake ..
 make
 ./server
+
+## Dev Command
+`rm build/server  && clang++ -std=c++20 src/main.cpp -o build/server && ./build/server`
