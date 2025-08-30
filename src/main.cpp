@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <map>
 #include <string>
@@ -96,6 +97,7 @@ auto main() -> int {
          * Create data buffer
          */
         std::array<char, 1024> buffer;
+        std::array<char, 1024> wbuffer;
         std::string data;
         while (true) {
             /*
@@ -120,8 +122,15 @@ auto main() -> int {
             while ((pos = data.find('\n')) != std::string::npos) {
                 std::string line = data.substr(0, pos);
                 data.erase(0, pos+1);
-                std::cout << "> Data: " << line << "\n";
+                std::cout << "[" << cfd << "] > Data: " << line << "\n";
             }
+
+            /*
+             * Send response
+             */
+            std::strcpy(wbuffer.data(), "OK \n");
+            size_t wbufflen = std::strlen(wbuffer.data());
+            ssize_t bytes_write = write(cfd, wbuffer.data(), wbufflen);
         }
     }
 
