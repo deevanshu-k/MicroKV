@@ -1,6 +1,7 @@
 #include <array>
 #include <cerrno>
 #include <csignal>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -225,7 +226,7 @@ auto main() -> int {
                 Conn& client = it->second;
 
                 if (events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
-                    std::cout << "client disconnected " << client.ip.data() << ":" << ntohs(client.peer.sin_port) << "\n";
+                    std::cout << "Client disconnected " << client.ip.data() << ":" << ntohs(client.peer.sin_port) << "\n";
                     loop.del(client.fd);
                     clients.erase(client.fd);
                     return;
@@ -233,6 +234,36 @@ auto main() -> int {
 
                 if (events & EPOLLIN) {
                     // Read data until EAGAIN
+                    std::array<char, 1024> buf;
+                    while(true) {
+                        ssize_t n = read(client.fd, buf.begin(), sizeof(buf));
+
+                        if (n > 0) {
+                            client.inbuf.append(buf.data(), n);
+
+                            // process completed lines
+                            size_t pos;
+                            while ((pos = client.inbuf.find('\n')) != std::string::npos) {
+                                auto line = client.inbuf.substr(0, pos);
+                                client.inbuf.erase(0, pos + 1);
+                                std::cout << "[" << client.fd << "]" << " " << line << "\n";
+                                std::string out = "Ok\n";
+                                write(client.fd, out.data(), out.size());
+                            }
+                        } else if (n == 0) {
+                            // client closed
+                            loop.del(client.fd);
+                            clients.erase(client.fd);
+                            return;
+                        } else {
+                            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+                            if (errno == EINTR) continue;
+                            perror("read");
+                            loop.del(client.fd);
+                            clients.erase(it);
+                            return;
+                        }
+                    }
                 }
             });
         }
