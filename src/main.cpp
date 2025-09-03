@@ -6,128 +6,29 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
-#include <functional>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
 #include <unistd.h>
+#include "utils/utils.h"
+#include "event-loop/event_loop.h"
 
 struct State {
     std::unordered_map<std::string, std::string> mp;
     std::mutex m;
 };
 
-static bool set_nonblock(int fd) {
+static auto set_nonblock(int fd) -> bool {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags < 0) return false;
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
-
-std::vector<std::string> split(const std::string& str, char delimiter) {
-    std::vector<std::string> tokens;
-    size_t start = 0;
-    size_t end = str.find(delimiter);
-
-    while (end != std::string::npos) {
-        tokens.push_back(str.substr(start, end - start));
-        start = end + 1; // Move past the delimiter
-        end = str.find(delimiter, start);
-    }
-    tokens.push_back(str.substr(start)); // Add the last token
-
-    return tokens;
-}
-
-class Eventloop {
-public:
-    using Handler = std::function<void(uint32_t events)>;
-
-    Eventloop() {
-        epfd = epoll_create1(EPOLL_CLOEXEC);
-        if (epfd < 0) {
-            perror("epoll_create1");
-        }
-    }
-
-    ~Eventloop() {
-        close(epfd);
-    }
-
-    auto add(int fd, uint32_t events, Handler h) -> bool {
-        epoll_event event{};
-        event.data.fd = fd;
-        event.events = events;
-
-        if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event) < 0) {
-            perror("epoll_ctl add");
-            return false;
-        }
-
-        handlers[fd] = std::move(h);
-
-        return true;
-    }
-
-    auto mod(int fd, uint32_t events) -> bool {
-        epoll_event event{};
-        event.data.fd = fd;
-        event.events = events;
-
-        if (epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &event) < 0) {
-            perror("epoll_ctl mod");
-            return false;
-        }
-
-        return true;
-    }
-
-    auto del(int fd) -> bool {
-        epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
-        return true;
-    }
-
-    auto run() -> void {
-        std::vector<epoll_event> events(128);
-        while (true) {
-            int n = epoll_wait(epfd, events.data(), (int)events.size(), -1);
-            if (n < 0) {
-                if (errno == EINTR) continue;
-                perror("epoll_wait");
-                break;
-            }
-
-            for (int i(0); i < n; i++) {
-                int fd = events[i].data.fd;
-                auto it = handlers.find(fd);
-                if (it != handlers.end()) {
-                    it->second(events[i].events);
-                }
-            }
-
-            if (n == (int)events.size()) events.resize(events.size() * 2);
-        }
-
-    }
-
-private:
-    int epfd{-1};
-    std::unordered_map<int, Handler> handlers;
-};
-
-struct Conn {
-    int fd{-1};
-    std::string inbuf;
-    sockaddr_in peer{};
-    std::array<char, 64> ip;
-};
 
 auto main() -> int {
     std::cout<< "C++, The language of God\n";
@@ -208,7 +109,11 @@ auto main() -> int {
      */
     Eventloop loop;
 
-    loop.add(socket_fd, EPOLLIN, [&](uint32_t ev) {
+    auto tcp_socket_fd = FileDescriptor{};
+    tcp_socket_fd.fd = socket_fd;
+    tcp_socket_fd.events = EPOLLIN;
+
+    loop.add(tcp_socket_fd, [&](uint32_t ev) {
         if (!(ev & EPOLLIN)) return;
 
         while (true) {
@@ -239,8 +144,10 @@ auto main() -> int {
             std::cout << "Client connected from " << c.ip.data() << ":" << ntohs(cli.sin_port) << "\n";
 
             clients[cfd] = c;
-
-            loop.add(cfd, EPOLLIN | EPOLLRDHUP | EPOLLERR, [&](uint32_t events){
+            auto client_socket_fd = FileDescriptor {};
+            client_socket_fd.fd = cfd;
+            client_socket_fd.events = EPOLLIN | EPOLLRDHUP | EPOLLERR;
+            loop.add(client_socket_fd, [&](uint32_t events){
                 auto it = clients.find(cfd);
                 if (it == clients.end()) {
                     return;
