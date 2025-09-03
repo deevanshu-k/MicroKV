@@ -9,6 +9,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -19,10 +20,30 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
+struct State {
+    std::unordered_map<std::string, std::string> mp;
+    std::mutex m;
+};
+
 static bool set_nonblock(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags < 0) return false;
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+std::vector<std::string> split(const std::string& str, char delimiter) {
+    std::vector<std::string> tokens;
+    size_t start = 0;
+    size_t end = str.find(delimiter);
+
+    while (end != std::string::npos) {
+        tokens.push_back(str.substr(start, end - start));
+        start = end + 1; // Move past the delimiter
+        end = str.find(delimiter, start);
+    }
+    tokens.push_back(str.substr(start)); // Add the last token
+
+    return tokens;
 }
 
 class Eventloop {
@@ -174,12 +195,13 @@ auto main() -> int {
     /*
      * In-Memory Storage
      */
-    std::map<std::string, std::string> kv;
+    auto* kv = new State();
 
     /*
      * Connection Map
      */
      std::unordered_map<int, Conn> clients;
+     std::mutex m;
 
     /*
      * Event Loop
@@ -246,9 +268,31 @@ auto main() -> int {
                             while ((pos = client.inbuf.find('\n')) != std::string::npos) {
                                 auto line = client.inbuf.substr(0, pos);
                                 client.inbuf.erase(0, pos + 1);
+
                                 std::cout << "[" << client.fd << "]" << " " << line << "\n";
-                                std::string out = "Ok\n";
-                                write(client.fd, out.data(), out.size());
+
+                                auto command = split(line, ' ');
+
+                                std::string response = "Wrong command";
+                                if (command.size() > 0) {
+                                    if (command[0] == "GET" && command.size() == 2) {
+                                        kv->m.lock();
+                                        if (kv->mp.find(command[1]) != kv->mp.end()) {
+                                            response = kv->mp[command[1]];
+                                        } else {
+                                            response = "Key not found";
+                                        }
+                                        kv->m.unlock();
+                                    }
+                                    if (command[0] == "POST" && command.size() == 3) {
+                                        kv->m.lock();
+                                        kv->mp[command[1]] = command[2];
+                                        response = "OK";
+                                        kv->m.unlock();
+                                    }
+                                }
+                                response += "\n";
+                                write(client.fd, response.data(), response.size());
                             }
                         } else if (n == 0) {
                             // client closed
