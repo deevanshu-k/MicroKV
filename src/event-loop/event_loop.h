@@ -12,13 +12,6 @@ struct FileDescriptor {
     uint32_t events;
 };
 
-struct Conn {
-    int fd{-1};
-    std::string inbuf;
-    sockaddr_in peer{};
-    std::array<char, 64> ip;
-};
-
 class Eventloop {
 public:
     using Handler = std::function<void(uint32_t events)>;
