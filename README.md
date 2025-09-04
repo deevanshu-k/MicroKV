@@ -11,4 +11,4 @@ make
 ./server
 
 ## Dev Command
-`rm build/server  && clang++ -std=c++20 src/main.cpp -o build/server && ./build/server`
+`rm build/server  && clang++ -std=c++20 src/main.cpp src/utils/utils.cpp src/event-loop/event_loop.cpp src/command/tcp_server.cpp -o build/server && ./build/server`
